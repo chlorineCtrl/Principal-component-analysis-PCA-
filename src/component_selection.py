@@ -3,11 +3,17 @@ how many components to keep. Five unsupervised criteria, all computed
 from the same full 561-component fit, plus a raw-vs-standardized comparison.
 """
 
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 
 from load_data import load_har
 from preprocess import standardize
 from pca_scratch import MyPCA
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+RESULTS_DIR = PROJECT_ROOT / "results"
 
 SCREE_WINDOW = 60
 
@@ -48,7 +54,7 @@ def k_scree_elbow(eigvals, window=SCREE_WINDOW):
     chord = end - start
     points = np.column_stack([x, y]) - start
     # 2-D cross product gives the area of the parallelogram, divide by the base
-    # length to get the perpendicular height. (numpy 2 no longer takes the cross product of 2-D vectors.)
+    # length to get the perpendicular height. 
     area = np.abs(chord[0] * points[:, 1] - chord[1] * points[:, 0])
     distance = area / np.linalg.norm(chord)
     return int(np.argmax(distance) + 1)
@@ -66,7 +72,7 @@ def all_criteria(eigvals, evr):
     return criteria
 
 
-def run():
+def run(results_dir=RESULTS_DIR):
     X_train, X_test, *_ = load_har()
     Z_train, _, _ = standardize(X_train, X_test)
 
@@ -76,10 +82,19 @@ def run():
     cum = np.cumsum(evr)
 
     criteria = all_criteria(eigvals, evr)
+    ordered = sorted(criteria.items(), key=lambda item: item[1])
 
     print("criterion               k       variance captured")
-    for label, k in sorted(criteria.items(), key=lambda item: item[1]):
+    for label, k in ordered:
         print(f"  {label:<20} k={k:<5}  ({cum[k - 1] * 100:.1f}%)")
+
+    results_dir = Path(results_dir)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    out_csv = results_dir / "component_criteria.csv"
+    pd.DataFrame([{"criterion": label, "k": k,
+                   "variance_retained_pct": float(cum[k - 1] * 100)}
+                  for label, k in ordered]).to_csv(out_csv, index=False)
+    print(f"  saved {out_csv.name}")
 
     # Same data without standardizing: PCA on the raw covariance matrix rather than the correlation matrix.
     raw = MyPCA().fit(X_train)
